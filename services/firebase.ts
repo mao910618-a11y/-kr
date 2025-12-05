@@ -66,13 +66,15 @@ export const isStorageInitialized = () => !!storage;
 // 1. SYNC USERS
 export const subscribeToUsers = (callback: (users: string[]) => void) => {
   if (!db) return () => {};
+  const firestore = db; // Capture strictly for closure
+
   // Listen to the 'trip_data' document, field 'users'
-  const unsub = onSnapshot(doc(db, 'trips', TRIP_ID), (docSnap) => {
+  const unsub = onSnapshot(doc(firestore, 'trips', TRIP_ID), (docSnap) => {
     if (docSnap.exists() && docSnap.data().users) {
       callback(docSnap.data().users);
     } else {
         // Init if empty. 
-        setDoc(doc(db, 'trips', TRIP_ID), { users: ['Me'] }, { merge: true });
+        setDoc(doc(firestore, 'trips', TRIP_ID), { users: ['Me'] }, { merge: true });
     }
   });
   return unsub;
@@ -80,14 +82,16 @@ export const subscribeToUsers = (callback: (users: string[]) => void) => {
 
 export const syncAddUser = async (name: string) => {
   if (!db) return;
-  await updateDoc(doc(db, 'trips', TRIP_ID), {
+  const firestore = db;
+  await updateDoc(doc(firestore, 'trips', TRIP_ID), {
     users: arrayUnion(name)
   });
 };
 
 export const syncRemoveUser = async (name: string) => {
   if (!db) return;
-  await updateDoc(doc(db, 'trips', TRIP_ID), {
+  const firestore = db;
+  await updateDoc(doc(firestore, 'trips', TRIP_ID), {
     users: arrayRemove(name)
   });
 };
@@ -95,7 +99,9 @@ export const syncRemoveUser = async (name: string) => {
 // 2. SYNC EXPENSES
 export const subscribeToExpenses = (callback: (expenses: ExpenseItem[]) => void) => {
   if (!db) return () => {};
-  const unsub = onSnapshot(collection(db, 'trips', TRIP_ID, 'expenses'), (snapshot) => {
+  const firestore = db;
+
+  const unsub = onSnapshot(collection(firestore, 'trips', TRIP_ID, 'expenses'), (snapshot) => {
     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExpenseItem));
     callback(data);
   });
@@ -104,18 +110,22 @@ export const subscribeToExpenses = (callback: (expenses: ExpenseItem[]) => void)
 
 export const syncAddExpense = async (expense: ExpenseItem) => {
   if (!db) return;
-  await setDoc(doc(db, 'trips', TRIP_ID, 'expenses', expense.id), expense);
+  const firestore = db;
+  await setDoc(doc(firestore, 'trips', TRIP_ID, 'expenses', expense.id), expense);
 };
 
 export const syncDeleteExpense = async (id: string) => {
   if (!db) return;
-  await deleteDoc(doc(db, 'trips', TRIP_ID, 'expenses', id));
+  const firestore = db;
+  await deleteDoc(doc(firestore, 'trips', TRIP_ID, 'expenses', id));
 };
 
 // 3. SYNC ITINERARY
 export const subscribeToItinerary = (callback: (items: ItineraryItem[]) => void) => {
   if (!db) return () => {};
-  const unsub = onSnapshot(collection(db, 'trips', TRIP_ID, 'itinerary'), (snapshot) => {
+  const firestore = db;
+
+  const unsub = onSnapshot(collection(firestore, 'trips', TRIP_ID, 'itinerary'), (snapshot) => {
     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ItineraryItem));
     callback(data);
   });
@@ -124,20 +134,23 @@ export const subscribeToItinerary = (callback: (items: ItineraryItem[]) => void)
 
 export const syncUpdateItinerary = async (item: ItineraryItem) => {
   if (!db) return;
-  await setDoc(doc(db, 'trips', TRIP_ID, 'itinerary', item.id), item);
+  const firestore = db;
+  await setDoc(doc(firestore, 'trips', TRIP_ID, 'itinerary', item.id), item);
 };
 
 export const syncDeleteItinerary = async (id: string) => {
   if (!db) return;
-  await deleteDoc(doc(db, 'trips', TRIP_ID, 'itinerary', id));
+  const firestore = db;
+  await deleteDoc(doc(firestore, 'trips', TRIP_ID, 'itinerary', id));
 };
 
 // 4. SYNC PHOTOS (Gallery)
 export const subscribeToPhotos = (callback: (photos: Photo[]) => void) => {
   // Only subscribe if storage is enabled to avoid broken image links
   if (!db || !storage) return () => {};
+  const firestore = db;
   
-  const unsub = onSnapshot(collection(db, 'trips', TRIP_ID, 'photos'), (snapshot) => {
+  const unsub = onSnapshot(collection(firestore, 'trips', TRIP_ID, 'photos'), (snapshot) => {
     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Photo));
     // Sort by ID (timestamp) desc
     data.sort((a, b) => Number(b.id) - Number(a.id));
@@ -150,10 +163,12 @@ export const uploadPhotoToCloud = async (photo: Photo): Promise<void> => {
   if (!db || !storage) {
       throw new Error("Storage not configured");
   }
+  const firestore = db;
+  const firebaseStorage = storage;
 
   try {
     // 1. Upload Base64 to Storage
-    const storageRef = ref(storage, `photos/${TRIP_ID}/${photo.id}.jpg`);
+    const storageRef = ref(firebaseStorage, `photos/${TRIP_ID}/${photo.id}.jpg`);
     await uploadString(storageRef, photo.url, 'data_url');
     
     // 2. Get Public URL
@@ -161,7 +176,7 @@ export const uploadPhotoToCloud = async (photo: Photo): Promise<void> => {
 
     // 3. Save Metadata to Firestore (including author)
     const cloudPhoto: Photo = { ...photo, url: downloadUrl, uploaded: true };
-    await setDoc(doc(db, 'trips', TRIP_ID, 'photos', photo.id), cloudPhoto);
+    await setDoc(doc(firestore, 'trips', TRIP_ID, 'photos', photo.id), cloudPhoto);
     
   } catch (e) {
     console.error("Cloud upload failed", e);
@@ -171,14 +186,16 @@ export const uploadPhotoToCloud = async (photo: Photo): Promise<void> => {
 
 export const deletePhotoFromCloud = async (photo: Photo) => {
   if (!db || !storage) return;
+  const firestore = db;
+  const firebaseStorage = storage;
   
   // Delete from Firestore
-  await deleteDoc(doc(db, 'trips', TRIP_ID, 'photos', photo.id));
+  await deleteDoc(doc(firestore, 'trips', TRIP_ID, 'photos', photo.id));
   
   // Delete from Storage (if it was uploaded)
   if (photo.uploaded || photo.url.includes('firebasestorage')) {
      try {
-       const storageRef = ref(storage, `photos/${TRIP_ID}/${photo.id}.jpg`);
+       const storageRef = ref(firebaseStorage, `photos/${TRIP_ID}/${photo.id}.jpg`);
        await deleteObject(storageRef);
      } catch (e) {
          console.warn("Storage file might already be gone", e);

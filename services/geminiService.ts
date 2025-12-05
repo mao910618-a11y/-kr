@@ -1,6 +1,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// In Vite/Vercel, use import.meta.env.VITE_API_KEY
+// Make sure to add VITE_API_KEY in your Vercel Project Settings -> Environment Variables
+const apiKey = import.meta.env.VITE_API_KEY || '';
+const ai = new GoogleGenAI({ apiKey });
 
 const MODEL_NAME = 'gemini-2.5-flash';
 
