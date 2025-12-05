@@ -46,7 +46,8 @@ export const PhotoView: React.FC<PhotoViewProps> = ({ user, onSavePhoto }) => {
       const newStream = await navigator.mediaDevices.getUserMedia({
         video: { 
           facingMode: facingMode,
-          aspectRatio: { ideal: 0.75 } // 3:4 aspect ratio
+          aspectRatio: { ideal: 0.75 }, // 3:4 aspect ratio
+          width: { ideal: 1280 } // Prefer HD resolution, not 4K to save memory
         },
         audio: false,
       });
@@ -115,21 +116,12 @@ export const PhotoView: React.FC<PhotoViewProps> = ({ user, onSavePhoto }) => {
   const takePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
 
-    // Visual Screen Flash Logic:
-    // 1. If using Front Camera and Flash is ON -> Trigger Screen Flash
-    // 2. If using Back Camera and NO hardware torch, but Flash ON -> Trigger Screen Flash
-    // 3. Always trigger a quick flash for feedback
-    
-    // Determine flash duration
+    // Visual Screen Flash Logic
     const shouldUseScreenFlash = (!hasTorch && flashMode) || facingMode === 'user';
-    
     setIsFlashing(true);
-    // If it's a "simulated flash" (front camera), make it last longer to light up the face
     const flashDuration = shouldUseScreenFlash && flashMode ? 400 : 150; 
-    
     setTimeout(() => setIsFlashing(false), flashDuration);
 
-    // Add a tiny delay to capture AFTER the screen lights up (if using screen flash)
     const captureDelay = shouldUseScreenFlash && flashMode ? 100 : 0;
 
     setTimeout(() => {
@@ -140,9 +132,27 @@ export const PhotoView: React.FC<PhotoViewProps> = ({ user, onSavePhoto }) => {
         const context = canvas.getContext('2d');
         if (!context) return;
 
-        // Use video dimensions
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+        // --- OPTIMIZATION START: Reduce Resolution ---
+        // Max dimension limit (1080px is enough for mobile viewing and saves huge RAM)
+        const MAX_DIMENSION = 1080; 
+        let width = video.videoWidth;
+        let height = video.videoHeight;
+
+        if (width > height) {
+            if (width > MAX_DIMENSION) {
+                height *= MAX_DIMENSION / width;
+                width = MAX_DIMENSION;
+            }
+        } else {
+            if (height > MAX_DIMENSION) {
+                width *= MAX_DIMENSION / height;
+                height = MAX_DIMENSION;
+            }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        // --- OPTIMIZATION END ---
 
         // Flip if user facing
         if (facingMode === 'user') {
@@ -150,18 +160,12 @@ export const PhotoView: React.FC<PhotoViewProps> = ({ user, onSavePhoto }) => {
             context.scale(-1, 1);
         }
 
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        context.drawImage(video, 0, 0, width, height);
         
-        // Create Preview
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        // Create Preview - Compress quality to 0.7
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
         setPreviewImage(dataUrl);
         
-        // Turn off torch after capture if we want "Flash" behavior, 
-        // OR keep it on if we want "Torch" behavior. 
-        // For travel convenience, let's keep it ON if user toggled it ON, 
-        // until they navigate away or toggle OFF.
-        
-        // Stop camera stream only after image is captured
         stopCamera();
     }, captureDelay);
   };

@@ -11,19 +11,70 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [isPrinting, setIsPrinting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Helper: Resize image to avoid LocalStorage quota limits (5MB)
+  const resizeImage = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const maxSize = 250; // Limit avatar size
+                let width = img.width;
+                let height = img.height;
+                
+                if (width > height) {
+                    if (width > maxSize) {
+                        height *= maxSize / width;
+                        width = maxSize;
+                    }
+                } else {
+                    if (height > maxSize) {
+                        width *= maxSize / height;
+                        height = maxSize;
+                    }
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx?.drawImage(img, 0, 0, width, height);
+                // Compress to JPEG 0.7 quality
+                resolve(canvas.toDataURL('image/jpeg', 0.7));
+            };
+            img.src = e.target?.result as string;
+        };
+        reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatar(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+       try {
+         const resizedDataUrl = await resizeImage(file);
+         setAvatar(resizedDataUrl);
+       } catch (err) {
+         console.error("Image processing failed", err);
+       }
     }
   };
 
   const handleCheckIn = () => {
     if (!name) return;
+    
+    // 1. Immediate Save (Backup)
+    // Save to LocalStorage RIGHT NOW so if user closes app during animation, they are still logged in next time.
+    try {
+        const payload = { name, avatar };
+        localStorage.setItem('seoul-trip-user', JSON.stringify(payload));
+    } catch (e) {
+        console.warn("LocalStorage full or error. Trying to save without avatar.");
+        // Fallback: Save name only if avatar is too big
+        try {
+            localStorage.setItem('seoul-trip-user', JSON.stringify({ name, avatar: null }));
+        } catch (e2) {}
+    }
+
     setIsPrinting(true);
     
     setTimeout(() => {

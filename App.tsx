@@ -199,8 +199,47 @@ const App: React.FC = () => {
     }
   }, [isCloudConnected, user?.name]);
 
+  // --- NEW: AUTO-KICK LOGIC ---
+  // If cloud is connected, and we have a valid list, but I am NOT in it -> Logout.
+  useEffect(() => {
+    if (isCloudConnected && user?.name && tripUsers.length > 0) {
+      
+      const amIInList = tripUsers.includes(user.name);
+      
+      // Ignore if the list is just the default ["Me"] (initial state before sync)
+      const isDefaultList = tripUsers.length === 1 && tripUsers[0] === 'Me';
+
+      if (!amIInList && !isDefaultList) {
+        console.warn("User is not in the Trip List. Initiating auto-logout sequence...");
+        
+        // Give a grace period (3 seconds) for "Add User" sync to happen if this is a fresh login,
+        // or for temporary glitches.
+        const timer = setTimeout(async () => {
+             alert("Access Revoked: You have been removed from this trip.");
+             localStorage.clear();
+             await clearPhotosFromDB();
+             window.location.reload();
+        }, 3000);
+
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [tripUsers, isCloudConnected, user?.name]);
+
 
   // --- LOCAL PERSISTENCE ---
+  
+  // Persist User whenever it changes
+  useEffect(() => {
+    if (user) {
+        try {
+            localStorage.setItem('seoul-trip-user', JSON.stringify(user));
+        } catch (e) {
+            console.error("Failed to persist user state", e);
+        }
+    }
+  }, [user]);
+
   useEffect(() => {
     if (!isCloudConnected && itinerary.length > 0) 
       localStorage.setItem('seoul-trip-itinerary', JSON.stringify(itinerary));
@@ -318,7 +357,10 @@ const App: React.FC = () => {
   const handleLogin = (name: string, avatar: string | null) => {
     const newUser = { name, avatar };
     setUser(newUser);
-    localStorage.setItem('seoul-trip-user', JSON.stringify(newUser));
+    // Redundant but safe: save immediately (also covered by useEffect)
+    try {
+      localStorage.setItem('seoul-trip-user', JSON.stringify(newUser));
+    } catch (e) { console.error("Quota exceeded on login", e); }
     
     // CLEANUP: If "Me" exists in the list, remove it and add the real user
     if (isCloudConnected) {
@@ -336,6 +378,16 @@ const App: React.FC = () => {
   };
 
   const handleDeleteUser = async () => {
+    // 1. If connected to cloud, remove my name from the global list
+    if (isCloudConnected && user?.name) {
+      try {
+        await syncRemoveUser(user.name);
+      } catch (e) {
+        console.error("Failed to remove user from cloud", e);
+      }
+    }
+    
+    // 2. Clear Local Data
     localStorage.clear();
     await clearPhotosFromDB();
     setUser(null);
@@ -351,7 +403,7 @@ const App: React.FC = () => {
     if (!user) return;
     const updatedUser = { ...user, avatar: newAvatar };
     setUser(updatedUser);
-    localStorage.setItem('seoul-trip-user', JSON.stringify(updatedUser));
+    // useEffect will handle persistence
   };
 
   const renderView = () => {
