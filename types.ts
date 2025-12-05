@@ -19,14 +19,18 @@ export interface ExpenseItem {
   name: string;
   cost: number;
   payer: string; // Who paid
-  isShared: boolean;
+  // Deprecated: isShared (keep for backward compatibility if needed, but logic moves to splitBy)
+  isShared?: boolean; 
+  // New: List of names who share this expense
+  splitBy: string[]; 
 }
 
 export interface WeatherInfo {
-  temp: number;
-  condition: string;
-  icon: string; // emoji
-  advice: string;
+  date: string;
+  label: string; // MM/DD
+  dayNum: number;
+  condition: 'sunny' | 'cloudy' | 'rain' | 'snow';
+  temp: string;
 }
 
 export interface Photo {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plane, Building, Phone, Plus, Edit2, MapPin, ChevronDown, ChevronUp, Wallet, AlertTriangle, X, User, Users, Lock, History, Trash2 } from 'lucide-react';
+import { Plane, Building, Phone, Plus, Edit2, MapPin, ChevronDown, ChevronUp, Wallet, AlertTriangle, X, User, Lock, Trash2, CheckCircle } from 'lucide-react';
 import { ExpenseItem } from '../types';
 import { ConfirmModal } from '../components/ConfirmModal';
 
@@ -17,19 +17,19 @@ interface HotelData {
 
 interface ToolViewProps {
   expenses: ExpenseItem[];
-  setExpenses?: React.Dispatch<React.SetStateAction<ExpenseItem[]>>; // Legacy prop, optional now
+  setExpenses?: React.Dispatch<React.SetStateAction<ExpenseItem[]>>; 
   onAdd: (item: ExpenseItem) => void;
   onDelete: (id: string) => void;
   tripUsers: string[];
+  exchangeRate: number;
+  onRateChange: (rate: number) => void;
 }
 
-const EXCHANGE_RATE = 0.0235;
-
-const PriceDisplay: React.FC<{ amount: number }> = ({ amount }) => {
+const PriceDisplay: React.FC<{ amount: number, rate: number }> = ({ amount, rate }) => {
   const [showTwd, setShowTwd] = useState(false);
   const handleStart = () => setShowTwd(true);
   const handleEnd = () => setShowTwd(false);
-  const twdAmount = Math.round(amount * EXCHANGE_RATE);
+  const twdAmount = Math.round(amount * rate);
 
   return (
     <span 
@@ -45,7 +45,7 @@ const PriceDisplay: React.FC<{ amount: number }> = ({ amount }) => {
   );
 };
 
-export const ToolView: React.FC<ToolViewProps> = ({ expenses, onAdd, onDelete, tripUsers }) => {
+export const ToolView: React.FC<ToolViewProps> = ({ expenses, onAdd, onDelete, tripUsers, exchangeRate, onRateChange }) => {
   const [flight, setFlight] = useState<FlightData>(() => {
     const saved = localStorage.getItem('seoul-tool-flight');
     return saved ? JSON.parse(saved) : { code: 'KE692', date: '01/16', route: 'TPE -> ICN' };
@@ -59,12 +59,23 @@ export const ToolView: React.FC<ToolViewProps> = ({ expenses, onAdd, onDelete, t
   const [newItemName, setNewItemName] = useState('');
   const [newItemCost, setNewItemCost] = useState('');
   const [selectedPayer, setSelectedPayer] = useState('Me');
-  const [isShared, setIsShared] = useState(true);
+  // New: Split selection
+  const [selectedSplit, setSelectedSplit] = useState<string[]>(tripUsers); 
+  // We sync selectedSplit with tripUsers whenever tripUsers changes (and initially)
+  useEffect(() => {
+     // Default to selecting all users when the list changes
+     if (tripUsers.length > 0) {
+        setSelectedSplit(tripUsers);
+     }
+  }, [tripUsers.length]);
+
 
   const [isEmergencyOpen, setIsEmergencyOpen] = useState(false);
   const [activeModal, setActiveModal] = useState<'flight' | 'hotel' | null>(null);
   const [isExpenseListExpanded, setIsExpenseListExpanded] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isEditingRate, setIsEditingRate] = useState(false);
+  const [tempRate, setTempRate] = useState(exchangeRate.toString());
 
   useEffect(() => localStorage.setItem('seoul-tool-flight', JSON.stringify(flight)), [flight]);
   useEffect(() => localStorage.setItem('seoul-tool-hotel', JSON.stringify(hotel)), [hotel]);
@@ -80,18 +91,25 @@ export const ToolView: React.FC<ToolViewProps> = ({ expenses, onAdd, onDelete, t
     if (!newItemName || !newItemCost) return;
     const cost = parseInt(newItemCost.replace(/[^0-9]/g, ''));
     if (isNaN(cost)) return;
+    if (selectedSplit.length === 0) {
+        alert("Please select at least one person to split the bill.");
+        return;
+    }
 
     const newItem: ExpenseItem = {
       id: Date.now().toString(),
       name: newItemName,
       cost,
       payer: selectedPayer,
-      isShared: isShared
+      isShared: selectedSplit.length > 1, // Backward compatibility
+      splitBy: selectedSplit
     };
     
-    onAdd(newItem); // Use parent handler
+    onAdd(newItem);
     setNewItemName('');
     setNewItemCost('');
+    // Reset split to everyone
+    setSelectedSplit(tripUsers);
   };
 
   const handleDeleteClick = (id: string, e?: React.MouseEvent) => {
@@ -101,13 +119,21 @@ export const ToolView: React.FC<ToolViewProps> = ({ expenses, onAdd, onDelete, t
 
   const confirmDelete = () => {
      if (deleteTargetId) {
-        onDelete(deleteTargetId); // Use parent handler
+        onDelete(deleteTargetId);
         setDeleteTargetId(null);
      }
   };
 
+  const saveRate = () => {
+      const r = parseFloat(tempRate);
+      if (!isNaN(r) && r > 0) {
+          onRateChange(r);
+          setIsEditingRate(false);
+      }
+  };
+
   const totalCostKRW = expenses
-    .filter(e => e.isShared)
+    .filter(e => e.splitBy && e.splitBy.length > 1) // Only count "Shared" expenses in total
     .reduce((sum, item) => sum + item.cost, 0);
 
   const getPayerColor = (name: string) => {
@@ -118,8 +144,42 @@ export const ToolView: React.FC<ToolViewProps> = ({ expenses, onAdd, onDelete, t
     return colors[Math.abs(hash) % colors.length];
   };
 
+  const toggleSplitUser = (user: string) => {
+      if (selectedSplit.includes(user)) {
+          setSelectedSplit(prev => prev.filter(u => u !== user));
+      } else {
+          setSelectedSplit(prev => [...prev, user]);
+      }
+  };
+
   return (
     <div className="px-5 space-y-5">
+      
+      {/* Rate Setting */}
+      <div className="bg-[#F1F8E9] px-4 py-3 rounded-2xl border border-[#DCEDC8] border-dashed flex justify-between items-center">
+         <div>
+            <div className="text-[10px] font-bold text-[#689F38] uppercase tracking-wider">Exchange Rate (KRW → TWD)</div>
+            {isEditingRate ? (
+                <div className="flex items-center gap-2 mt-1">
+                    <input 
+                        type="number" 
+                        value={tempRate} 
+                        onChange={(e) => setTempRate(e.target.value)}
+                        className="w-20 p-1 text-xs font-bold rounded border border-green-300 outline-none"
+                    />
+                    <button onClick={saveRate} className="text-[10px] bg-green-600 text-white px-2 py-1 rounded font-bold">OK</button>
+                </div>
+            ) : (
+                <div onClick={() => { setTempRate(exchangeRate.toString()); setIsEditingRate(true); }} className="text-sm font-black text-gray-700 cursor-pointer flex items-center gap-1 group">
+                    1 KRW ≈ {exchangeRate} TWD <Edit2 size={10} className="opacity-0 group-hover:opacity-100 text-green-500" />
+                </div>
+            )}
+         </div>
+         <div className="text-right hidden sm:block">
+            <div className="text-[9px] text-gray-400 font-bold italic">Auto-updated from API</div>
+         </div>
+      </div>
+
       {/* ... Flight and Hotel Grids (Unchanged visually) ... */}
       <div className="grid grid-cols-2 gap-3">
         <div onClick={() => setActiveModal('flight')} className="bg-white rounded-[1.5rem] p-4 shadow-sm border border-gray-100 relative overflow-hidden group active:scale-95 transition-transform cursor-pointer h-32 flex flex-col justify-between">
@@ -152,7 +212,7 @@ export const ToolView: React.FC<ToolViewProps> = ({ expenses, onAdd, onDelete, t
         </div>
       </div>
 
-      {/* ... Edit Modals ... */}
+      {/* ... Edit Modals (Unchanged) ... */}
       {activeModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6 animate-in fade-in duration-200">
           <div className="bg-[#FEFAE0] p-6 rounded-[2rem] w-full max-w-sm shadow-2xl border-4 border-white relative">
@@ -184,29 +244,40 @@ export const ToolView: React.FC<ToolViewProps> = ({ expenses, onAdd, onDelete, t
       {/* Expense Tracker */}
       <div className="bg-white rounded-[1.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border-[3px] border-white overflow-hidden">
         <div className="p-5 pb-2">
-            <div className="flex justify-between items-center mb-1">
+            <div className="flex justify-between items-center mb-4">
               <h2 className="text-xs font-black text-[#00A86B] tracking-widest uppercase flex items-center gap-1.5"><Wallet size={14} /> SHARED_WALLET</h2>
               <div className="text-right"><div className="text-2xl font-black text-gray-800 font-mono tracking-tighter">₩{totalCostKRW.toLocaleString()}</div></div>
             </div>
-            <div className="flex justify-between items-center bg-[#F1F8E9] px-3 py-2 rounded-lg mb-5 border border-[#DCEDC8] border-dashed">
-              <span className="text-[10px] font-bold text-[#689F38]">本日匯率: 1 KRW ≈ {EXCHANGE_RATE} TWD</span>
-              <span className="text-[10px] font-bold text-gray-400 italic">長按金額換算</span>
-            </div>
-
+            
             <div className="space-y-3 mb-4">
-              <div className="flex gap-2">
-                 <button onClick={() => setIsShared(!isShared)} className={`flex-1 p-3 rounded-xl border-2 font-bold text-[10px] flex items-center justify-center gap-2 transition-all ${isShared ? 'bg-retro-light border-retro-dark/20 text-retro-dark' : 'bg-gray-100 border-gray-200 text-gray-500'}`}>
-                    {isShared ? <Users size={14} /> : <Lock size={14} />} {isShared ? 'GROUP (1/n)' : 'PRIVATE'}
-                 </button>
-                 <div className="relative w-1/2">
+              {/* Who Paid? */}
+              <div className="flex items-center gap-2">
+                 <div className="relative w-1/3">
                     <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none"><User size={12} className="text-gray-400"/></div>
                     <select value={selectedPayer} onChange={(e) => setSelectedPayer(e.target.value)} className="w-full p-3 pl-7 rounded-xl bg-gray-50 border-2 border-transparent focus:border-[#00A86B] focus:bg-white outline-none text-[10px] font-bold text-gray-700 appearance-none">
                       {tripUsers.map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
                     <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"/>
                  </div>
+                 <div className="flex-1 bg-gray-50 p-2 rounded-xl flex items-center gap-2 overflow-x-auto no-scrollbar">
+                     <span className="text-[9px] font-bold text-gray-400 uppercase shrink-0">Split:</span>
+                     {tripUsers.map(u => {
+                         const isSelected = selectedSplit.includes(u);
+                         return (
+                            <button 
+                                key={u}
+                                onClick={() => toggleSplitUser(u)}
+                                className={`shrink-0 px-2 py-1 rounded text-[9px] font-bold transition-all border border-transparent ${isSelected ? getPayerColor(u) + ' shadow-sm' : 'text-gray-300 bg-white border-gray-100 hover:border-gray-200'}`}
+                            >
+                                {u}
+                            </button>
+                         )
+                     })}
+                 </div>
               </div>
+
               <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="Item Name (項目名稱)" className="w-full p-3 rounded-xl bg-gray-50 border-2 border-transparent focus:border-[#00A86B] focus:bg-white outline-none text-xs font-bold text-gray-700" />
+              
               <div className="flex gap-2">
                 <div className="relative flex-1 min-w-0">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">₩</span>
@@ -229,12 +300,24 @@ export const ToolView: React.FC<ToolViewProps> = ({ expenses, onAdd, onDelete, t
                     <div className="flex items-center gap-2 overflow-hidden flex-1">
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-black flex-shrink-0 ${getPayerColor(item.payer)}`}>{item.payer.charAt(0)}</div>
                         <div className="flex flex-col min-w-0">
-                          <div className="flex items-center gap-1.5"><span className="text-xs font-bold text-gray-800 truncate">{item.name}</span>{!item.isShared && <Lock size={10} className="text-gray-300" />}</div>
-                          <span className="text-[8px] text-gray-400 font-bold">Paid by {item.payer}</span>
+                          <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-gray-800 truncate">{item.name}</span>
+                              {/* Icon to show split status */}
+                              {(!item.splitBy || item.splitBy.length === 1) ? (
+                                  <Lock size={10} className="text-gray-300" /> 
+                              ) : (item.splitBy.length < tripUsers.length) ? (
+                                  <span className="text-[8px] bg-orange-100 text-orange-600 px-1 rounded font-bold">Subset</span>
+                              ) : null}
+                          </div>
+                          <span className="text-[8px] text-gray-400 font-bold">
+                             Paid by {item.payer} • {item.splitBy && item.splitBy.length > 1 ? `Split: ${item.splitBy.join(', ')}` : 'Personal'}
+                          </span>
                         </div>
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0 ml-2">
-                      <div className={`text-xs font-mono font-bold select-none text-right ${item.isShared ? '' : 'opacity-50'}`}><PriceDisplay amount={item.cost} /></div>
+                      <div className={`text-xs font-mono font-bold select-none text-right ${(item.splitBy && item.splitBy.length > 1) ? '' : 'opacity-50'}`}>
+                          <PriceDisplay amount={item.cost} rate={exchangeRate} />
+                      </div>
                       <button onClick={(e) => handleDeleteClick(item.id, e)} className="p-1.5 rounded-md text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
                     </div>
                   </div>

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, Camera, Trash2, User, Users, Plus, Minus } from 'lucide-react';
+import { X, Camera, Trash2, Users, Plus, Minus } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
 import { CloudConfigModal } from './CloudConfigModal';
 
@@ -85,6 +85,9 @@ export const Header: React.FC<HeaderProps> = ({ user, tripUsers, onDeleteUser, o
     }
   };
 
+  const displayName = user?.name || 'GUEST';
+  const displayInitial = displayName.charAt(0).toUpperCase();
+
   return (
     <>
       <div className="relative z-20 bg-retro-bg px-5 pt-6 pb-4">
@@ -112,15 +115,15 @@ export const Header: React.FC<HeaderProps> = ({ user, tripUsers, onDeleteUser, o
             >
               <div className="text-right flex flex-col items-end">
                 <div className="text-[9px] font-bold text-gray-400 font-sans tracking-widest uppercase group-hover:text-retro-accent transition-colors">PASSENGER</div>
-                <div className="text-xs font-bold text-gray-800 font-sans bg-yellow-100/50 px-1 rounded border border-transparent group-hover:border-retro-accent/30 transition-all">{user.name || 'GUEST'}</div>
+                <div className="text-xs font-bold text-gray-800 font-sans bg-yellow-100/50 px-1 rounded border border-transparent group-hover:border-retro-accent/30 transition-all">{displayName}</div>
               </div>
               
               {/* User Avatar */}
               <div className="w-10 h-10 rounded-full bg-[#E5E5E5] flex items-center justify-center font-bold text-gray-500 border-2 border-white shadow-sm text-lg overflow-hidden relative group-hover:ring-2 ring-retro-accent/50 transition-all">
-                {user.avatar ? (
+                {user?.avatar ? (
                   <img src={user.avatar} alt="User" className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-gray-400">{user.name ? user.name.charAt(0).toUpperCase() : 'G'}</span>
+                  <span className="text-gray-400">{displayInitial}</span>
                 )}
               </div>
             </button>
@@ -174,11 +177,11 @@ export const Header: React.FC<HeaderProps> = ({ user, tripUsers, onDeleteUser, o
                       onClick={() => fileInputRef.current?.click()}
                       className="relative w-10 h-10 rounded-full bg-gray-200 border border-gray-100 shadow-inner overflow-hidden cursor-pointer hover:opacity-90 active:scale-95 transition-all"
                     >
-                        {user.avatar ? (
+                        {user?.avatar ? (
                           <img src={user.avatar} className="w-full h-full object-cover filter sepia-[.2]" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-xs font-black text-gray-300">
-                            {user.name.charAt(0)}
+                            {displayInitial}
                           </div>
                         )}
                         {/* Camera Overlay */}
@@ -190,7 +193,7 @@ export const Header: React.FC<HeaderProps> = ({ user, tripUsers, onDeleteUser, o
                     {/* Info */}
                     <div>
                         <div className="text-[8px] font-bold text-retro-accent uppercase tracking-wider mb-0.5">APP HOLDER (YOU)</div>
-                        <div className="text-sm font-black text-retro-text font-mono leading-none">{user.name}</div>
+                        <div className="text-sm font-black text-retro-text font-mono leading-none">{displayName}</div>
                     </div>
                  </div>
 
@@ -221,12 +224,12 @@ export const Header: React.FC<HeaderProps> = ({ user, tripUsers, onDeleteUser, o
               </div>
 
               {/* --- Virtual Users List --- */}
-              {tripUsers.filter(u => u !== 'Me' && u !== user.name).length === 0 ? (
+              {tripUsers.filter(u => u !== 'Me' && u !== displayName).length === 0 ? (
                  <div className="text-center py-4 text-[10px] text-gray-300 font-bold italic">
                     No friends added yet.
                  </div>
               ) : (
-                tripUsers.filter(u => u !== 'Me' && u !== user.name).map((u) => (
+                tripUsers.filter(u => u !== 'Me' && u !== displayName).map((u) => (
                     <div key={u} className="bg-white/60 p-2 rounded-lg border border-transparent hover:border-retro-text/10 flex items-center justify-between group transition-colors">
                         <div className="flex items-center gap-2">
                             <div className="w-6 h-6 rounded-full bg-[#E5E5E5] flex items-center justify-center text-[10px] font-bold text-gray-500">

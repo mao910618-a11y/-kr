@@ -16,15 +16,40 @@ interface UserData {
   avatar: string | null;
 }
 
+// Define safely outside component to avoid recreation
+const safeMigrateExpenses = (items: any[]): ExpenseItem[] => {
+  if (!Array.isArray(items)) return [];
+  return items.map(item => {
+    // Defensive check for payer
+    const payer = item.payer || 'Me';
+    // Fallback logic for splitBy
+    const splitBy = Array.isArray(item.splitBy) && item.splitBy.length > 0
+        ? item.splitBy 
+        : (item.isShared ? DEFAULT_TRIP_USERS : [payer]);
+    
+    return {
+      ...item,
+      payer,
+      splitBy
+    };
+  });
+};
+
 const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<Tab>('plan');
   const [isCloudConnected, setIsCloudConnected] = useState(false);
   
-  // User State
+  // User State - Added try-catch and extra validation
   const [user, setUser] = useState<UserData | null>(() => {
     try {
       const savedUser = localStorage.getItem('seoul-trip-user');
-      return savedUser ? JSON.parse(savedUser) : null;
+      if (!savedUser) return null;
+      const parsed = JSON.parse(savedUser);
+      // Validate structure
+      if (parsed && typeof parsed.name === 'string') {
+        return parsed;
+      }
+      return null;
     } catch (e) { return null; }
   });
 
@@ -33,13 +58,46 @@ const App: React.FC = () => {
   const [itinerary, setItinerary] = useState<ItineraryItem[]>([]);
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
+  
+  // Exchange Rate State
+  const [exchangeRate, setExchangeRate] = useState<number>(() => {
+    try {
+      const savedRate = localStorage.getItem('seoul-exchange-rate');
+      const parsed = savedRate ? parseFloat(savedRate) : 0.0235;
+      return isNaN(parsed) ? 0.0235 : parsed;
+    } catch { return 0.0235; }
+  });
+
+  // Fetch Live Exchange Rate on mount
+  useEffect(() => {
+    const fetchRate = async () => {
+      try {
+        const res = await fetch('https://api.exchangerate-api.com/v4/latest/KRW');
+        const data = await res.json();
+        if (data && data.rates && data.rates.TWD) {
+           const rate = data.rates.TWD;
+           setExchangeRate(rate);
+           localStorage.setItem('seoul-exchange-rate', rate.toString());
+        }
+      } catch (e) {
+        console.warn("Failed to fetch exchange rate, using default/saved.", e);
+      }
+    };
+    fetchRate();
+  }, []);
+
+  const handleRateChange = (newRate: number) => {
+    setExchangeRate(newRate);
+    localStorage.setItem('seoul-exchange-rate', newRate.toString());
+  };
+
 
   // --- INITIALIZATION ---
   useEffect(() => {
     let connected = false;
 
     // 1. Priority: Check if User added keys in source code (YOUR_FIREBASE_CONFIG)
-    if (YOUR_FIREBASE_CONFIG.apiKey !== "") {
+    if (YOUR_FIREBASE_CONFIG && YOUR_FIREBASE_CONFIG.apiKey !== "") {
         console.log("Auto-connecting using pre-configured keys...");
         if (initFirebase(YOUR_FIREBASE_CONFIG)) {
             setIsCloudConnected(true);
@@ -72,16 +130,32 @@ const App: React.FC = () => {
   const loadLocalData = () => {
      try {
        const u = localStorage.getItem('seoul-trip-users');
-       if(u) setTripUsers(JSON.parse(u));
+       if(u) {
+          const parsed = JSON.parse(u);
+          if (Array.isArray(parsed)) setTripUsers(parsed);
+       }
 
        const i = localStorage.getItem('seoul-trip-itinerary');
-       if(i) setItinerary(JSON.parse(i));
+       if(i) {
+          const parsed = JSON.parse(i);
+          if (Array.isArray(parsed)) setItinerary(parsed);
+       }
        
        const e = localStorage.getItem('seoul-tool-expenses');
-       if(e) setExpenses(JSON.parse(e));
+       if(e) {
+          try {
+            const parsed = JSON.parse(e);
+            setExpenses(safeMigrateExpenses(parsed));
+          } catch(err) {
+            console.error("Error migrating expenses", err);
+            setExpenses([]);
+          }
+       }
 
        getPhotosFromDB().then(setPhotos);
-     } catch(e) {}
+     } catch(e) {
+        console.error("Error loading local data", e);
+     }
   };
 
   // --- CLOUD SYNC SUBSCRIPTIONS ---
@@ -90,7 +164,10 @@ const App: React.FC = () => {
     
     // Subscribe to Firestore Data
     const unsubUsers = subscribeToUsers(setTripUsers);
-    const unsubExpenses = subscribeToExpenses(setExpenses);
+    const unsubExpenses = subscribeToExpenses((data) => {
+        // Ensure incoming cloud data also gets migrated if missing splitBy
+        setExpenses(safeMigrateExpenses(data));
+    });
     const unsubItinerary = subscribeToItinerary(setItinerary);
     
     // Subscribe to Photos ONLY if Storage is available
@@ -99,7 +176,6 @@ const App: React.FC = () => {
         unsubPhotos = subscribeToPhotos(setPhotos);
     } else {
         // Fallback: If cloud is connected (DB) but Storage is not, use Local Photos
-        console.log("Cloud connected but Storage missing: Using local photos.");
         getPhotosFromDB().then(setPhotos);
     }
 
@@ -112,20 +188,19 @@ const App: React.FC = () => {
   }, [isCloudConnected]);
 
   // --- CRITICAL FIX: Announce Self on Connect ---
-  // When cloud connects OR when user logs in, ensure their name is added to the cloud list.
   useEffect(() => {
     if (isCloudConnected && user?.name) {
-       // Using a small timeout to ensure connection is stable and avoid race conditions
        const timer = setTimeout(() => {
-          // This will use arrayUnion, so duplicates are automatically prevented by Firebase
           syncAddUser(user.name);
+          // Also cleanup 'Me' from cloud if it's there
+          syncRemoveUser('Me');
        }, 1500);
        return () => clearTimeout(timer);
     }
   }, [isCloudConnected, user?.name]);
 
 
-  // --- LOCAL PERSISTENCE (Only if NOT Cloud) ---
+  // --- LOCAL PERSISTENCE ---
   useEffect(() => {
     if (!isCloudConnected && itinerary.length > 0) 
       localStorage.setItem('seoul-trip-itinerary', JSON.stringify(itinerary));
@@ -142,8 +217,7 @@ const App: React.FC = () => {
   }, [tripUsers, isCloudConnected]);
 
 
-  // --- HANDLERS (HYBRID: Check Cloud ? Cloud : Local) ---
-
+  // --- HANDLERS ---
   const handleManualRefreshCloud = () => {
     if (isFirebaseInitialized()) {
       setIsCloudConnected(true);
@@ -160,7 +234,7 @@ const App: React.FC = () => {
   };
 
   const handleRemoveTripUser = (name: string) => {
-    if (name === 'Me') return;
+    // NOTE: Removed the 'Me' guard here to allow cleanup during login
     if (isCloudConnected) {
       syncRemoveUser(name);
     } else {
@@ -168,8 +242,6 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Wrapper Handlers for Views ---
-  
   // 1. Itinerary Wrapper
   const handleItineraryChange = (action: 'add' | 'update' | 'delete', item: ItineraryItem) => {
      if (isCloudConnected) {
@@ -186,20 +258,24 @@ const App: React.FC = () => {
 
   // 2. Expenses Wrapper
   const handleExpensesChange = (action: 'add' | 'delete', item: ExpenseItem) => {
+    const finalizedItem = {
+        ...item,
+        splitBy: item.splitBy && item.splitBy.length > 0 ? item.splitBy : (item.isShared ? tripUsers : [item.payer])
+    };
+
     if (isCloudConnected) {
-       if (action === 'delete') syncDeleteExpense(item.id);
-       else syncAddExpense(item);
+       if (action === 'delete') syncDeleteExpense(finalizedItem.id);
+       else syncAddExpense(finalizedItem);
     } else {
        setExpenses(prev => {
-          if (action === 'delete') return prev.filter(e => e.id !== item.id);
-          return [...prev, item];
+          if (action === 'delete') return prev.filter(e => e.id !== finalizedItem.id);
+          return [...prev, finalizedItem];
        });
     }
   };
 
   // 3. Photos Wrapper
   const handleSavePhoto = async (newPhoto: Photo) => {
-    // Inject Author
     const photoWithAuthor = { 
         ...newPhoto, 
         author: user?.name || 'Anonymous' 
@@ -216,7 +292,6 @@ const App: React.FC = () => {
       }
     }
 
-    // If not connected OR if cloud upload failed/skipped
     if (!savedToCloud) {
        setPhotos(prev => [photoWithAuthor, ...prev]);
        await addPhotoToDB(photoWithAuthor);
@@ -240,17 +315,27 @@ const App: React.FC = () => {
   };
 
   // --- LOGIN / LOGOUT ---
-
   const handleLogin = (name: string, avatar: string | null) => {
     const newUser = { name, avatar };
     setUser(newUser);
     localStorage.setItem('seoul-trip-user', JSON.stringify(newUser));
-    // Immediately register presence locally and in cloud
-    handleAddTripUser(name);
+    
+    // CLEANUP: If "Me" exists in the list, remove it and add the real user
+    if (isCloudConnected) {
+        syncAddUser(name);
+        syncRemoveUser('Me');
+    } else {
+        setTripUsers(prev => {
+            const listWithoutMe = prev.filter(u => u !== 'Me');
+            if (!listWithoutMe.includes(name)) {
+                return [...listWithoutMe, name];
+            }
+            return listWithoutMe;
+        });
+    }
   };
 
   const handleDeleteUser = async () => {
-    // Reset Everything
     localStorage.clear();
     await clearPhotosFromDB();
     setUser(null);
@@ -259,7 +344,6 @@ const App: React.FC = () => {
     setPhotos([]);
     setTripUsers(DEFAULT_TRIP_USERS);
     setIsCloudConnected(false);
-    // Reload to clear memory states cleanly
     window.location.reload();
   };
   
@@ -272,17 +356,15 @@ const App: React.FC = () => {
 
   const renderView = () => {
     switch (currentTab) {
-      case 'settle': return <SettleView expenses={expenses} tripUsers={tripUsers} />;
+      case 'settle': return <SettleView expenses={expenses} tripUsers={tripUsers} exchangeRate={exchangeRate} />;
       case 'tool': 
-        // Adapting ToolView to new handler pattern requires small refactor or wrapper
         return <ToolView 
           expenses={expenses} 
-          setExpenses={(val) => {
-             // Hack support for legacy dispatch if needed
-          }} 
           onAdd={(item) => handleExpensesChange('add', item)}
           onDelete={(id) => handleExpensesChange('delete', { id } as ExpenseItem)}
-          tripUsers={tripUsers} 
+          tripUsers={tripUsers}
+          exchangeRate={exchangeRate}
+          onRateChange={handleRateChange}
         />;
       case 'plan': 
         return <PlanView 
@@ -297,7 +379,7 @@ const App: React.FC = () => {
           onDeletePhoto={handleDeletePhoto} 
           isSharedGallery={isCloudConnected && isStorageInitialized()} 
       />;
-      default: return <SettleView expenses={expenses} tripUsers={tripUsers} />;
+      default: return <SettleView expenses={expenses} tripUsers={tripUsers} exchangeRate={exchangeRate} />;
     }
   };
 

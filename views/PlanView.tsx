@@ -1,15 +1,25 @@
-import React, { useState } from 'react';
-import { Plus, Navigation, ShoppingBag, Utensils, Train, MapPin, X, ChevronDown, ChevronUp, Cloud, Sun, CloudRain, CloudSnow, Edit2, Trash2 } from 'lucide-react';
-import { ItineraryItem, Category } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Plus, Navigation, ShoppingBag, Utensils, Train, MapPin, X, ChevronDown, ChevronUp, Cloud, Sun, CloudRain, CloudSnow, Edit2, Trash2, Wand2 } from 'lucide-react';
+import { ItineraryItem, Category, WeatherInfo } from '../types';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { getAIWeatherForecast } from '../services/geminiService';
 
 interface PlanViewProps {
   items: ItineraryItem[];
-  setItems?: React.Dispatch<React.SetStateAction<ItineraryItem[]>>; // Legacy prop
+  setItems?: React.Dispatch<React.SetStateAction<ItineraryItem[]>>; 
   onAdd: (item: ItineraryItem) => void;
   onUpdate: (item: ItineraryItem) => void;
   onDelete: (id: string) => void;
 }
+
+// Initial placeholder data (Hardcoded as fallback)
+const INITIAL_DATES: WeatherInfo[] = [
+    { date: '2026-01-16', label: '01/16', dayNum: 1, condition: 'cloudy', temp: '4°C' },
+    { date: '2026-01-17', label: '01/17', dayNum: 2, condition: 'sunny', temp: '2°C' },
+    { date: '2026-01-18', label: '01/18', dayNum: 3, condition: 'snow', temp: '0°C' },
+    { date: '2026-01-19', label: '01/19', dayNum: 4, condition: 'sunny', temp: '2°C' },
+    { date: '2026-01-20', label: '01/20', dayNum: 5, condition: 'cloudy', temp: '3°C' },
+];
 
 export const PlanView: React.FC<PlanViewProps> = ({ items, onAdd, onUpdate, onDelete }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -17,14 +27,34 @@ export const PlanView: React.FC<PlanViewProps> = ({ items, onAdd, onUpdate, onDe
   const [expandedDay, setExpandedDay] = useState<string | null>('2026-01-16'); 
   const [selectedDateForAdd, setSelectedDateForAdd] = useState<string>('2026-01-16');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isWeatherLoading, setIsWeatherLoading] = useState(false);
 
-  const dates = [
-    { date: '2026-01-16', label: '01/16', dayNum: 1, weather: 'cloudy', temp: '4°C' },
-    { date: '2026-01-17', label: '01/17', dayNum: 2, weather: 'sunny', temp: '2°C' },
-    { date: '2026-01-18', label: '01/18', dayNum: 3, weather: 'snow', temp: '0°C' },
-    { date: '2026-01-19', label: '01/19', dayNum: 4, weather: 'sunny', temp: '2°C' },
-    { date: '2026-01-20', label: '01/20', dayNum: 5, weather: 'cloudy', temp: '3°C' },
-  ];
+  // Use state for dates to allow updates
+  const [dates, setDates] = useState<WeatherInfo[]>(() => {
+    const saved = localStorage.getItem('seoul-trip-weather');
+    return saved ? JSON.parse(saved) : INITIAL_DATES;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('seoul-trip-weather', JSON.stringify(dates));
+  }, [dates]);
+
+  const fetchAIWeather = async () => {
+    setIsWeatherLoading(true);
+    const dateStrings = dates.map(d => d.date);
+    const predictions = await getAIWeatherForecast(dateStrings);
+    
+    if (predictions && predictions.length > 0) {
+        setDates(prev => prev.map(d => {
+            const pred = predictions.find((p: any) => p.date === d.date);
+            if (pred) {
+                return { ...d, condition: pred.condition, temp: pred.temp };
+            }
+            return d;
+        }));
+    }
+    setIsWeatherLoading(false);
+  };
 
   const getWeatherIcon = (type: string, size = 20, className = "") => {
     switch(type) {
@@ -54,6 +84,20 @@ export const PlanView: React.FC<PlanViewProps> = ({ items, onAdd, onUpdate, onDe
   };
 
   const toggleDay = (date: string) => setExpandedDay(expandedDay === date ? null : date);
+  
+  // Allow manual toggling of weather condition by clicking the icon
+  const cycleWeather = (date: string, e: React.MouseEvent) => {
+      e.stopPropagation(); // prevent collapsing accordion
+      const conditions: ('sunny' | 'cloudy' | 'rain' | 'snow')[] = ['sunny', 'cloudy', 'rain', 'snow'];
+      setDates(prev => prev.map(d => {
+          if (d.date === date) {
+              const currentIdx = conditions.indexOf(d.condition as any);
+              const nextIdx = (currentIdx + 1) % conditions.length;
+              return { ...d, condition: conditions[nextIdx] };
+          }
+          return d;
+      }));
+  };
 
   const handleOpenMaps = (location: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -95,12 +139,31 @@ export const PlanView: React.FC<PlanViewProps> = ({ items, onAdd, onUpdate, onDe
       <div className="relative z-10 px-5 space-y-5">
         <div className="bg-white rounded-2xl p-3 shadow-sm border border-white relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-200 via-pink-200 to-yellow-200 opacity-50"></div>
-          <div className="flex items-center gap-2 mb-2"><Sun size={16} className="text-blue-400" /><span className="text-[10px] font-bold text-blue-500 tracking-[0.2em] font-sans uppercase">5-DAY WEATHER SCAN</span></div>
+          
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+                <Sun size={16} className="text-blue-400" />
+                <span className="text-[10px] font-bold text-blue-500 tracking-[0.2em] font-sans uppercase">WEATHER SCAN</span>
+            </div>
+            <button 
+                onClick={fetchAIWeather}
+                disabled={isWeatherLoading}
+                className="text-[9px] font-bold bg-blue-50 text-blue-500 px-2 py-1 rounded-lg flex items-center gap-1 hover:bg-blue-100 transition-colors"
+            >
+                {isWeatherLoading ? (
+                    <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                    <Wand2 size={10} />
+                )}
+                AI FORECAST
+            </button>
+          </div>
+
           <div className="flex justify-between gap-1 overflow-x-auto no-scrollbar py-1">
             {dates.map((d) => (
-              <div key={d.date} className="flex flex-col items-center min-w-[50px] p-1.5 rounded-xl bg-gray-50 border border-gray-100/50 hover:bg-blue-50 transition-colors cursor-pointer group">
+              <div key={d.date} onClick={(e) => cycleWeather(d.date, e)} className="flex flex-col items-center min-w-[50px] p-1.5 rounded-xl bg-gray-50 border border-gray-100/50 hover:bg-blue-50 transition-colors cursor-pointer group active:scale-95">
                 <span className="text-[9px] font-bold text-gray-400 mb-1 group-hover:text-blue-400">{d.label}</span>
-                <div className="mb-1 transform group-hover:scale-110 transition-transform">{getWeatherIcon(d.weather, 20)}</div>
+                <div className="mb-1 transform group-hover:scale-110 transition-transform">{getWeatherIcon(d.condition, 20)}</div>
                 <span className="text-[10px] font-black text-gray-600 group-hover:text-gray-800">{d.temp}</span>
               </div>
             ))}
@@ -120,7 +183,7 @@ export const PlanView: React.FC<PlanViewProps> = ({ items, onAdd, onUpdate, onDe
                   </div>
                   <div className="flex justify-between items-end mt-1.5">
                     <h2 className="text-3xl font-black text-gray-800 font-sans tracking-tight leading-none">DAY <span className="text-2xl">{d.dayNum}</span></h2>
-                    <div className="bg-gray-100/80 px-3 py-1 rounded-full flex items-center gap-1.5">{getWeatherIcon(d.weather, 14)}<span className="text-xs font-bold text-gray-600">{d.temp}</span></div>
+                    <div className="bg-gray-100/80 px-3 py-1 rounded-full flex items-center gap-1.5">{getWeatherIcon(d.condition, 14)}<span className="text-xs font-bold text-gray-600">{d.temp}</span></div>
                   </div>
                   <div className="flex justify-center mt-2 -mb-2 opacity-10">{isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}</div>
                 </div>

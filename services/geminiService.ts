@@ -1,7 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Access environment variable safely
-const apiKey = import.meta.env.VITE_API_KEY;
+// Access environment variable safely (handles cases where meta might be restricted)
+const getApiKey = () => {
+  try {
+    return (import.meta as any).env?.VITE_API_KEY;
+  } catch {
+    return "";
+  }
+};
+
+const apiKey = getApiKey();
 
 // Only initialize AI if key exists
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
@@ -63,3 +71,43 @@ export const suggestItineraryItem = async (currentItems: string[]): Promise<{ ti
     return null;
   }
 }
+
+export const getAIWeatherForecast = async (dates: string[]): Promise<any[]> => {
+  if (!ai) return [];
+  
+  try {
+    const prompt = `
+      Generate a realistic winter weather forecast for Seoul for these dates: ${dates.join(', ')}.
+      Since this is in the future (2026), base it on historical averages for January (usually cold, -5C to 2C, some snow).
+      Return a JSON array where each object has:
+      - date (string, matching input)
+      - condition (string enum: 'sunny', 'cloudy', 'rain', 'snow')
+      - temp (string, e.g. "-2°C")
+    `;
+
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+             type: Type.OBJECT,
+             properties: {
+                date: { type: Type.STRING },
+                condition: { type: Type.STRING, enum: ['sunny', 'cloudy', 'rain', 'snow'] },
+                temp: { type: Type.STRING }
+             }
+          }
+        }
+      }
+    });
+    
+    const text = response.text;
+    return text ? JSON.parse(text) : [];
+  } catch (error) {
+    console.error("Weather gen error", error);
+    return [];
+  }
+};
