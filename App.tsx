@@ -111,6 +111,18 @@ const App: React.FC = () => {
     };
   }, [isCloudConnected]);
 
+  // --- CRITICAL FIX: Announce Self on Connect ---
+  // When cloud connects OR when user logs in, ensure their name is added to the cloud list.
+  useEffect(() => {
+    if (isCloudConnected && user?.name) {
+       // Using a small timeout to ensure connection is stable and avoid race conditions
+       setTimeout(() => {
+          syncAddUser(user.name);
+       }, 1000);
+    }
+  }, [isCloudConnected, user?.name]);
+
+
   // --- LOCAL PERSISTENCE (Only if NOT Cloud) ---
   useEffect(() => {
     if (!isCloudConnected && itinerary.length > 0) 
@@ -231,6 +243,8 @@ const App: React.FC = () => {
     const newUser = { name, avatar };
     setUser(newUser);
     localStorage.setItem('seoul-trip-user', JSON.stringify(newUser));
+    // Immediately register presence locally and in cloud
+    handleAddTripUser(name);
   };
 
   const handleDeleteUser = async () => {

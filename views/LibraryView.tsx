@@ -29,12 +29,29 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ photos, onDeletePhoto,
     }
   };
 
+  // Helper: Force browser download from Blob
+  const forceDownload = (blob: Blob, filename: string) => {
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(blobUrl);
+  };
+
   const handleDownload = async (photo: Photo) => {
     setIsProcessing(true);
+    const filename = `SEOUL_${photo.date.replace(/[: .]/g, '')}.jpg`;
+
     try {
+      // --- Method 1: Try creating a fancy Polaroid with Canvas ---
+      // This requires the image server to support CORS (Access-Control-Allow-Origin: *)
+      
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      if (!ctx) throw new Error("No Context");
 
       // Configuration for high-res output
       const padding = 60;
@@ -51,15 +68,19 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ photos, onDeletePhoto,
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // 2. Draw Image
+      // 2. Load Image
       const img = new Image();
-      img.src = photo.url;
-      // Handle cross-origin if needed (though base64 or firebase URLs usually work if configured)
+      // Add timestamp to prevent caching issues with CORS headers
+      const cacheBuster = photo.url.includes('?') ? '&t=' : '?t=';
+      img.src = photo.url + cacheBuster + new Date().getTime();
+      
+      // IMPORTANT: Request CORS permission
       img.crossOrigin = "anonymous"; 
       
       await new Promise((resolve, reject) => {
         img.onload = resolve;
-        img.onerror = reject;
+        // If server doesn't send CORS header, this triggers error
+        img.onerror = () => reject(new Error("CORS_BLOCK"));
       });
 
       // Maintain aspect ratio cover/fit
@@ -72,22 +93,37 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ photos, onDeletePhoto,
       ctx.textBaseline = 'middle';
       
       const captionY = padding + imgHeight + (bottomPadding / 2);
-      // Format: "Photo by Luyo" or "KR-SEOUL / 2026..."
       const captionText = photo.author ? `Photo by ${photo.author}` : `KR-SEOUL / ${photo.date}`;
       ctx.fillText(captionText, canvas.width / 2, captionY);
 
-      // 4. Trigger Download
+      // 4. Trigger Download of Canvas
       const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
       const link = document.createElement('a');
-      link.download = `SEOUL_${photo.date.replace(/[: .]/g, '')}.jpg`;
+      link.download = filename;
       link.href = dataUrl;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       
-    } catch (e) {
-      console.error("Download failed", e);
-      alert("Failed to generate image. Note: Cross-origin images from cloud might be blocked by browser security.");
+    } catch (e: any) {
+      console.warn("Polaroid generation failed (likely CORS), falling back to direct download.", e);
+      
+      // --- Method 2: Fallback - Download Original File ---
+      // If canvas failed (CORS), we try to fetch the blob directly.
+      
+      try {
+        const response = await fetch(photo.url);
+        if (!response.ok) throw new Error("Network response was not ok");
+        const blob = await response.blob();
+        forceDownload(blob, `RAW_${filename}`);
+        alert("Note: Saved original photo (Cloud security prevented adding the frame).");
+      } catch (fetchError) {
+        console.error("Direct fetch failed", fetchError);
+        // --- Method 3: Last Resort - Open in New Tab ---
+        // If fetch also fails due to strict CORS, just open it
+        window.open(photo.url, '_blank');
+        alert("Image opened in new tab. Please long-press to save.");
+      }
     } finally {
       setIsProcessing(false);
     }
