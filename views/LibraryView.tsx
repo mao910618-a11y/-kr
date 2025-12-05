@@ -55,7 +55,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ photos, onDeletePhoto,
 
       // Configuration for high-res output
       const padding = 60;
-      const bottomPadding = 200;
+      const bottomPadding = 240; // Increased bottom padding for 2 lines of text
       const targetWidth = 1080;
       const imgWidth = targetWidth - (padding * 2);
       const imgHeight = imgWidth * (4/3);
@@ -86,15 +86,24 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ photos, onDeletePhoto,
       // Maintain aspect ratio cover/fit
       ctx.drawImage(img, padding, padding, imgWidth, imgHeight);
 
-      // 3. Draw Text
-      ctx.fillStyle = '#666666';
-      ctx.font = '60px "Nanum Pen Script", cursive'; 
+      // 3. Draw Text (Two Lines)
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       
-      const captionY = padding + imgHeight + (bottomPadding / 2);
-      const captionText = photo.author ? `Photo by ${photo.author}` : `KR-SEOUL / ${photo.date}`;
-      ctx.fillText(captionText, canvas.width / 2, captionY);
+      const centerX = canvas.width / 2;
+      const line1Y = padding + imgHeight + (bottomPadding * 0.4);
+      const line2Y = padding + imgHeight + (bottomPadding * 0.7);
+
+      // Line 1: Author or Main Title
+      ctx.fillStyle = '#2d2d2d';
+      ctx.font = '60px "Nanum Pen Script", cursive'; 
+      const mainText = photo.author ? `Captured by ${photo.author}` : 'Seoul, South Korea';
+      ctx.fillText(mainText, centerX, line1Y);
+
+      // Line 2: Date & Time
+      ctx.fillStyle = '#888888';
+      ctx.font = '48px "Nanum Pen Script", cursive';
+      ctx.fillText(photo.date, centerX, line2Y);
 
       // 4. Trigger Download of Canvas
       const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
@@ -116,7 +125,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ photos, onDeletePhoto,
         if (!response.ok) throw new Error("Network response was not ok");
         const blob = await response.blob();
         forceDownload(blob, `RAW_${filename}`);
-        alert("Note: Saved original photo (Cloud security prevented adding the frame).");
+        alert("Saved original photo! (Note: Cloud security prevented adding the polaroid frame, but your photo is safe).");
       } catch (fetchError) {
         console.error("Direct fetch failed", fetchError);
         // --- Method 3: Last Resort - Open in New Tab ---
@@ -206,11 +215,17 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ photos, onDeletePhoto,
                   <div className="aspect-[3/4] bg-gray-100 w-full overflow-hidden mb-3 relative ring-1 ring-black/5">
                       <img src={selectedPhoto.url} className="w-full h-full object-cover" alt="Full size" />
                   </div>
-                  <div className="text-center">
-                      <span className="font-hand text-xl text-gray-600 tracking-wide">
-                        {selectedPhoto.author ? `Photo by ${selectedPhoto.author}` : `KR-SEOUL / ${selectedPhoto.date}`}
+                  
+                  {/* Updated Caption Area: Two Lines for Clarity */}
+                  <div className="text-center mt-2 flex flex-col gap-1">
+                      <span className="font-hand text-2xl text-gray-700 tracking-wide leading-none">
+                        {selectedPhoto.author ? `Photo by ${selectedPhoto.author}` : 'Seoul Trip'}
+                      </span>
+                      <span className="font-hand text-lg text-gray-400 tracking-wider">
+                        {selectedPhoto.date}
                       </span>
                   </div>
+
                   {/* Texture Overlay */}
                   <div className="absolute inset-0 pointer-events-none mix-blend-multiply opacity-[0.05] bg-[url('https://www.transparenttextures.com/patterns/paper.png')]"></div>
                </div>

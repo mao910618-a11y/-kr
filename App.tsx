@@ -116,9 +116,11 @@ const App: React.FC = () => {
   useEffect(() => {
     if (isCloudConnected && user?.name) {
        // Using a small timeout to ensure connection is stable and avoid race conditions
-       setTimeout(() => {
+       const timer = setTimeout(() => {
+          // This will use arrayUnion, so duplicates are automatically prevented by Firebase
           syncAddUser(user.name);
-       }, 1000);
+       }, 1500);
+       return () => clearTimeout(timer);
     }
   }, [isCloudConnected, user?.name]);
 
