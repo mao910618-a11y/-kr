@@ -1,13 +1,19 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-// In Vite/Vercel, use import.meta.env.VITE_API_KEY
-// Make sure to add VITE_API_KEY in your Vercel Project Settings -> Environment Variables
-const apiKey = import.meta.env.VITE_API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+// Access environment variable safely
+const apiKey = import.meta.env.VITE_API_KEY;
+
+// Only initialize AI if key exists
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 const MODEL_NAME = 'gemini-2.5-flash';
 
 export const getTravelAdvice = async (location: string, date: string): Promise<string> => {
+  if (!ai) {
+    // Fallback if no API key
+    return "Have a wonderful trip to Seoul! (Add API Key to enable AI tips)";
+  }
+
   try {
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
@@ -21,6 +27,10 @@ export const getTravelAdvice = async (location: string, date: string): Promise<s
 };
 
 export const suggestItineraryItem = async (currentItems: string[]): Promise<{ title: string; location: string; category: string } | null> => {
+  if (!ai) {
+    return null; // Return null effectively disables the AI suggestion silently
+  }
+
   try {
     const prompt = `
       I am planning a trip to Seoul in Jan 2026. 
