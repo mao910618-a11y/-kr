@@ -295,21 +295,26 @@ const App: React.FC = () => {
      }
   };
 
-  // 2. Expenses Wrapper
+  // 2. Expenses Wrapper (With Optimistic UI)
   const handleExpensesChange = (action: 'add' | 'delete', item: ExpenseItem) => {
     const finalizedItem = {
         ...item,
         splitBy: item.splitBy && item.splitBy.length > 0 ? item.splitBy : (item.isShared ? tripUsers : [item.payer])
     };
 
+    // OPTIMISTIC UPDATE: Update local state IMMEDIATELY, regardless of cloud connection.
+    // This ensures SettleView recalculates instantly without waiting for network round-trip.
+    setExpenses(prev => {
+        if (action === 'delete') return prev.filter(e => e.id !== finalizedItem.id);
+        // Avoid adding duplicate if it already exists (prevent race condition flickering)
+        if (prev.some(e => e.id === finalizedItem.id)) return prev;
+        return [...prev, finalizedItem];
+    });
+
+    // Then Sync to Cloud if connected
     if (isCloudConnected) {
        if (action === 'delete') syncDeleteExpense(finalizedItem.id);
        else syncAddExpense(finalizedItem);
-    } else {
-       setExpenses(prev => {
-          if (action === 'delete') return prev.filter(e => e.id !== finalizedItem.id);
-          return [...prev, finalizedItem];
-       });
     }
   };
 
